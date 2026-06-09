@@ -1,0 +1,6 @@
+.env
+doc et notes/
+.mypy_cache/
+.venv/
+venv/
+__pycache__/
