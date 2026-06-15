@@ -4,7 +4,7 @@ import plotly.graph_objects as go
 
 LOGO = "https://user-gen-media-assets.s3.amazonaws.com/gemini_images/2877ac40-2405-4447-b8a8-4526ddbadd72.png"
 
-st.set_page_config(page_title="Aladin Crypto", page_icon=LOGO, layout="wide")
+st.set_page_config(page_title="RugRadar — Crypto Manipulation Detector", page_icon="🔍", layout="wide")
 
 st.markdown("""
 <style>
@@ -19,17 +19,19 @@ st.markdown("""
 st.markdown(f"""
 <div class="header-wrap">
   <img class="header-img" src="{LOGO}">
-  <div class="header-title">Aladin Crypto</div>
+  <div class="header-title">RugRadar</div>
 </div>
 """, unsafe_allow_html=True)
 
 st.markdown("### Accès rapide")
-nav1, nav2, nav3 = st.columns(3)
+nav1, nav2, nav3, nav4 = st.columns(4)
 with nav1:
-    st.page_link("pages/watchlist_page.py", label="Liste de surveillance")
+    st.page_link("pages/rugradar_page.py", label="🔍 RugRadar")
 with nav2:
-    st.page_link("pages/token_pages.py", label="Fiches jetons détaillées")
+    st.page_link("pages/watchlist_page.py", label="Liste de surveillance")
 with nav3:
+    st.page_link("pages/token_pages.py", label="Fiches jetons détaillées")
+with nav4:
     st.page_link("pages/signals_pages.py", label="Signaux")
 
 st.write("")
@@ -53,7 +55,7 @@ with right:
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown("### Premium")
     st.write("Le premium peut contenir des signaux avancés, des alertes privées et un suivi plus réactif.")
-    st.link_button("Voir la page premium", "premium_page.py")
+    st.link_button("Voir la page premium", "prenium_page.py")
     st.markdown("### Telegram")
     st.link_button("Ouvrir le bot Telegram", "https://t.me/ton_bot")
     st.markdown("</div>", unsafe_allow_html=True)

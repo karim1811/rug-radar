@@ -13,7 +13,7 @@ st.markdown("""
 .header-title{font-size:2rem;font-weight:800;line-height:1;color:#fff;}
 </style>
 """, unsafe_allow_html=True)
-st.markdown(f"<div class='header-wrap'><img class='header-img' src='{LOGO}'><div class='header-title'>Aladin Crypto</div></div>", unsafe_allow_html=True)
+st.markdown(f"<div class='header-wrap'><img class='header-img' src='{LOGO}'><div class='header-title'>RugRadar</div></div>", unsafe_allow_html=True)
 
 col1, col2 = st.columns([1, 8])
 with col1:

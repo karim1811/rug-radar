@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 
-st.set_page_config(page_title="Aladin Crypto", page_icon="📊", layout="wide")
+st.set_page_config(page_title="RugRadar — Dashboard", page_icon="🔍", layout="wide")
 
 st.markdown(
     """
@@ -25,7 +25,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-st.title("Aladin Crypto")
+st.title("RugRadar")
 st.caption("Dashboard inspiré des pages marché modernes")
 
 m1, m2, m3, m4 = st.columns(4)
@@ -165,10 +165,12 @@ for ticker, name, price, chg, cap, signal in df.values:
         st.write("**Risque**: volatilité élevée, attention aux mouvements brusques.")
 
 st.markdown("## Accès rapide")
-b1, b2, b3 = st.columns(3)
-if b1.button("Ouvrir les jetons"):
+b1, b2, b3, b4 = st.columns(4)
+if b1.button("🔍 RugRadar"):
+    st.switch_page("pages/rugradar_page.py")
+if b2.button("Ouvrir les jetons"):
     st.switch_page("pages/token_pages.py")
-if b2.button("Ouvrir les signaux"):
+if b3.button("Ouvrir les signaux"):
     st.switch_page("pages/signals_pages.py")
-if b3.button("Ouvrir la watchlist"):
+if b4.button("Ouvrir la watchlist"):
     st.switch_page("pages/watchlist_page.py")

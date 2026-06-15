@@ -19,7 +19,7 @@ st.markdown("""
 st.markdown(f"""
 <div class="header-wrap">
   <img class="header-img" src="{LOGO}">
-  <div class="header-title">Aladin Crypto Premium</div>
+  <div class="header-title">RugRadar Premium</div>
 </div>
 """, unsafe_allow_html=True)
 
