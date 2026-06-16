@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import requests
 
 LOGO = "https://user-gen-media-assets.s3.amazonaws.com/gemini_images/2877ac40-2405-4447-b8a8-4526ddbadd72.png"
 
@@ -21,63 +22,99 @@ with col1:
         st.switch_page("main.py")
 with col2:
     st.title("Tokens")
-    st.caption("Vue détaillée des tokens suivis.")
+    st.caption("Top coins du marche — donnees CoinGecko en temps reel.")
 
-@st.cache_data(ttl=300)
-def data():
-    return pd.DataFrame([
-        ["SOL", "Solana", "L1", 187.76, 3.6, 120.9, 78, [174, 176, 172, 178, 181, 185, 188], "Momentum fort"],
-        ["JUP", "Jupiter", "DeFi", 0.98, 11.2, 1.4, 85, [0.72, 0.75, 0.81, 0.88, 0.92, 0.95, 0.98], "Breakout"],
-        ["BONK", "Bonk", "Memecoin", 0.000024, -2.1, 1.9, 42, [0.000026, 0.000025, 0.0000245, 0.0000248, 0.000024, 0.0000238, 0.000024], "Faible"],
-        ["PYTH", "Pyth", "Oracle", 0.45, 4.8, 2.7, 74, [0.39, 0.40, 0.41, 0.43, 0.44, 0.45, 0.45], "Fort"],
-        ["WIF", "dogwifhat", "Memecoin", 2.31, 7.9, 2.3, 81, [2.08, 2.05, 2.10, 2.18, 2.22, 2.27, 2.31], "Fort"],
-        ["JTO", "Jito", "Liquid Staking", 3.98, -1.3, 1.2, 56, [4.10, 4.05, 4.02, 4.00, 3.99, 3.97, 3.98], "Consolidation"],
-        ["RAY", "Raydium", "DeFi", 2.76, 2.4, 0.9, 69, [2.62, 2.65, 2.67, 2.70, 2.73, 2.74, 2.76], "Reprise"],
-        ["DRIFT", "Drift", "Perps", 1.89, -4.6, 0.7, 39, [2.02, 1.98, 1.95, 1.93, 1.91, 1.90, 1.89], "Sous pression"],
-        ["TNSR", "Tensor", "NFT", 0.61, 5.1, 0.4, 64, [0.54, 0.55, 0.57, 0.58, 0.60, 0.60, 0.61], "Rebond"],
-    ], columns=["Ticker", "Nom", "Secteur", "Prix", "24h", "MarketCap", "Score", "Trend", "Signal"])
+@st.cache_data(ttl=120)
+def fetch_top_coins(per_page=50):
+    try:
+        r = requests.get(
+            "https://api.coingecko.com/api/v3/coins/markets",
+            params={
+                "vs_currency": "usd",
+                "order": "market_cap_desc",
+                "per_page": per_page,
+                "page": 1,
+                "sparkline": "true",
+                "price_change_percentage": "24h,7d",
+            },
+            timeout=15,
+        )
+        if r.status_code == 200:
+            data = r.json()
+            rows = []
+            for x in data:
+                rows.append({
+                    "Rank": x.get("market_cap_rank", 0),
+                    "Ticker": x.get("symbol", "").upper(),
+                    "Nom": x.get("name", ""),
+                    "Prix": x.get("current_price", 0) or 0,
+                    "24h": x.get("price_change_percentage_24h", 0) or 0,
+                    "7d": x.get("price_change_percentage_7d_in_currency", 0) or 0,
+                    "MarketCap": x.get("market_cap", 0) or 0,
+                    "Volume": x.get("total_volume", 0) or 0,
+                    "Sparkline": x.get("sparkline_in_7d", {}).get("price", []),
+                })
+            return pd.DataFrame(rows)
+    except Exception:
+        pass
+    return pd.DataFrame()
 
-df = data()
+with st.spinner("Chargement du top coins via CoinGecko..."):
+    df = fetch_top_coins()
 
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("Tokens suivis", len(df))
-m2.metric("En hausse", int((df["24h"] > 0).sum()))
-m3.metric("En baisse", int((df["24h"] < 0).sum()))
-m4.metric("Score moyen", f'{df["Score"].mean():.0f}')
+if df.empty:
+    st.warning("API CoinGecko indisponible. Reessaie dans un moment.")
+else:
+    up = (df["24h"] > 0).sum()
+    down = (df["24h"] < 0).sum()
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Tokens", len(df))
+    m2.metric("En hausse 24h", up)
+    m3.metric("En baisse 24h", down)
+    m4.metric("Dominance BTC", f"${df.iloc[0]['MarketCap']/df['MarketCap'].sum()*100:.0f}%" if len(df) > 0 else "N/A")
 
-sector = st.selectbox("Secteur", ["Tous"] + sorted(df["Secteur"].unique().tolist()))
-sortby = st.selectbox("Trier par", ["Score", "24h", "MarketCap", "Prix"])
-order = st.selectbox("Ordre", ["Décroissant", "Croissant"])
-view = df.copy()
-if sector != "Tous":
-    view = view[view["Secteur"] == sector]
-view = view.sort_values(sortby, ascending=(order == "Croissant"))
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        sortby = st.selectbox("Trier par", ["MarketCap", "24h", "7d", "Volume", "Prix"])
+    with col_f2:
+        top_n = st.slider("Afficher top", 5, 50, 20)
 
-st.dataframe(
-    view,
-    use_container_width=True,
-    hide_index=True,
-    column_config={
-        "Ticker": st.column_config.TextColumn("Ticker", pinned=True, width="small"),
-        "Nom": st.column_config.TextColumn("Nom", width="medium"),
-        "Secteur": st.column_config.TextColumn("Secteur", width="medium"),
-        "Prix": st.column_config.NumberColumn("Prix", format="%.6f"),
-        "24h": st.column_config.NumberColumn("24h", format="%.1f"),
-        "MarketCap": st.column_config.NumberColumn("Market Cap Bn", format="%.2f"),
-        "Score": st.column_config.ProgressColumn("Score", min_value=0, max_value=100, format="%d"),
-        "Signal": st.column_config.TextColumn("Signal", width="medium"),
-        "Trend": st.column_config.LineChartColumn("7J", y_min=min(min(x) for x in view["Trend"]), y_max=max(max(x) for x in view["Trend"])),
-    }
-)
+    view = df.sort_values(sortby, ascending=False).head(top_n)
 
-for _, row in view.iterrows():
-    with st.expander(f'{row["Ticker"]} - {row["Nom"]}', expanded=False):
-        a, b, c, d = st.columns(4)
-        a.metric("Prix", f'{row["Prix"]}')
-        b.metric("24h", f'{row["24h"]}%')
-        c.metric("Market cap", f'{row["MarketCap"]} Bn')
-        d.metric("Score", f'{row["Score"]}')
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=list(range(1, 8)), y=row["Trend"], mode="lines+markers", line=dict(color="#22c55e", width=3), marker=dict(size=6), fill="tozeroy", fillcolor="rgba(34,197,94,0.12)"))
-        fig.update_layout(height=220, margin=dict(l=10, r=10, t=10, b=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(255,255,255,0.03)", xaxis=dict(visible=False), yaxis=dict(visible=False))
-        st.plotly_chart(fig, use_container_width=True)
+    st.dataframe(
+        view[["Rank", "Ticker", "Nom", "Prix", "24h", "7d", "MarketCap", "Volume", "Sparkline"]],
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Rank": st.column_config.TextColumn("#", width="small"),
+            "Ticker": st.column_config.TextColumn("Ticker", width="small"),
+            "Nom": st.column_config.TextColumn("Nom", width="medium"),
+            "Prix": st.column_config.NumberColumn("Prix", format="$%.4f"),
+            "24h": st.column_config.NumberColumn("24h", format="%.1f%%"),
+            "7d": st.column_config.NumberColumn("7d", format="%.1f%%"),
+            "MarketCap": st.column_config.NumberColumn("Market Cap", format="$%.0f"),
+            "Volume": st.column_config.NumberColumn("Volume 24h", format="$%.0f"),
+            "Sparkline": st.column_config.LineChartColumn("7J", width="small"),
+        },
+    )
+
+    # spaghetti chart
+    st.subheader("📊 Comparaison top 10 (7J sparkline)")
+    fig = go.Figure()
+    for _, row in df.head(10).iterrows():
+        prices = row.get("Sparkline", [])
+        if prices:
+            # Normalize to % change from first value
+            base = prices[0] if prices[0] != 0 else 1
+            normalized = [(p / base - 1) * 100 for p in prices]
+            fig.add_trace(go.Scatter(y=normalized, mode="lines", name=row["Ticker"], line=dict(width=2)))
+    fig.update_layout(
+        height=350,
+        margin=dict(l=10, r=10, t=20, b=10),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(255,255,255,0.03)",
+        font={"color": "white"},
+        xaxis=dict(visible=False),
+        yaxis=dict(title="% change", gridcolor="rgba(255,255,255,0.08)"),
+    )
+    st.plotly_chart(fig, use_container_width=True)

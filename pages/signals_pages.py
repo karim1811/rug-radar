@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import requests
+import time
 
 LOGO = "https://user-gen-media-assets.s3.amazonaws.com/gemini_images/2877ac40-2405-4447-b8a8-4526ddbadd72.png"
 
@@ -21,56 +23,168 @@ with col1:
         st.switch_page("main.py")
 with col2:
     st.title("Signaux")
-    st.caption("Lecture rapide des opportunités et des risques.")
+    st.caption("Signaux achat/vente generes automatiquement depuis les donnees live.")
 
-@st.cache_data(ttl=300)
-def data():
-    return pd.DataFrame([
-        ["SOL", "Solana", "Achat", 92, 3.6, "Breakout confirmé", "Très fort", "Solana ecosystem"],
-        ["JUP", "Jupiter", "Achat", 88, 11.2, "Momentum fort", "Fort", "DeFi"],
-        ["BONK", "Bonk", "Attente", 61, -2.1, "Rotation possible", "Neutre", "Memecoin"],
-        ["PYTH", "Pyth", "Achat", 79, 4.8, "Reprise propre", "Fort", "Oracle"],
-        ["WIF", "dogwifhat", "Achat", 84, 7.9, "Volume en hausse", "Fort", "Memecoin"],
-        ["JTO", "Jito", "Attente", 57, -1.3, "Consolidation", "Neutre", "Solana ecosystem"],
-        ["RAY", "Raydium", "Achat", 73, 2.4, "Rebond technique", "Fort", "DeFi"],
-        ["DRIFT", "Drift", "Vente", 42, -4.6, "Sous pression", "Faible", "Perps"],
-        ["TNSR", "Tensor", "Achat", 68, 5.1, "Rebond spéculatif", "Neutre", "NFT"],
-        ["MOBILE", "Helium Mobile", "Vente", 31, -6.2, "Faiblesse persistante", "Faible", "Infra"],
-    ], columns=["Ticker", "Nom", "Action", "Score", "24h", "Lecture", "Force", "Catégorie"])
+# ── Fetch trending from CoinGecko ──
+@st.cache_data(ttl=120)
+def fetch_trending():
+    try:
+        r = requests.get("https://api.coingecko.com/api/v3/search/trending", timeout=10)
+        if r.status_code == 200:
+            return r.json().get("coins", [])
+    except Exception:
+        pass
+    return []
 
-df = data()
+# ── Fetch pair from DexScreener by query ──
+@st.cache_data(ttl=60)
+def fetch_dex_pair(query: str, chain: str = "solana"):
+    try:
+        url = f"https://api.dexscreener.com/latest/dex/search?q={query} {chain}"
+        r = requests.get(url, timeout=10)
+        if r.status_code == 200:
+            pairs = r.json().get("pairs", [])
+            if pairs:
+                return pairs[0]
+    except Exception:
+        pass
+    return None
 
-m1, m2, m3, m4 = st.columns(4)
-m1.metric("Signaux achat", int((df["Action"] == "Achat").sum()))
-m2.metric("Signaux vente", int((df["Action"] == "Vente").sum()))
-m3.metric("Score moyen", f'{df["Score"].mean():.0f}')
-m4.metric("Signaux forts", int(df["Force"].isin(["Fort", "Très fort"]).sum()))
+# ── Risk scoring (same logic as rugradar) ──
+def calc_risk(pair: dict) -> tuple:
+    score = 50
+    if not pair:
+        return score, "N/A", "#8b949e"
+    mcap = pair.get("marketCap", 0) or 0
+    liq = pair.get("liquidity", {}).get("usd", 0) or 0
+    vol = pair.get("volume", {}).get("h24", 0) or 0
+    pc = pair.get("priceChange", {})
+    chg24 = pc.get("h24", 0) or 0
+    created = pair.get("pairCreatedAt", 0) or 0
 
-scoremin = st.slider("Score minimum", 0, 100, 60, 1)
-category = st.selectbox("Catégorie", ["Toutes"] + sorted(df["Catégorie"].unique().tolist()))
-view = df[df["Score"] >= scoremin].copy()
-if category != "Toutes":
-    view = view[view["Catégorie"] == category]
-view = view.sort_values("Score", ascending=False)
+    if mcap < 100_000: score += 15
+    elif mcap < 500_000: score += 10
+    elif mcap > 100_000_000: score -= 10
+    elif mcap > 10_000_000: score -= 5
 
-st.dataframe(
-    view,
-    use_container_width=True,
-    hide_index=True,
-    column_config={
-        "Ticker": st.column_config.TextColumn("Ticker", pinned=True, width="small"),
-        "Nom": st.column_config.TextColumn("Nom", width="medium"),
-        "Action": st.column_config.TextColumn("Action", width="small"),
-        "Score": st.column_config.ProgressColumn("Score", min_value=0, max_value=100, format="%d"),
-        "24h": st.column_config.NumberColumn("24h", format="%.1f"),
-        "Lecture": st.column_config.TextColumn("Lecture", width="large"),
-        "Force": st.column_config.TextColumn("Force", width="medium"),
-        "Catégorie": st.column_config.TextColumn("Catégorie", width="medium"),
-    }
-)
+    if liq < 10_000: score += 20
+    elif liq < 50_000: score += 15
+    elif liq < 200_000: score += 5
+    elif liq > 1_000_000: score -= 10
 
-radar = df.groupby("Catégorie", as_index=False)["Score"].mean()
-fig = go.Figure()
-fig.add_trace(go.Bar(x=radar["Catégorie"], y=radar["Score"], marker_color=["#22c55e" if x >= 70 else "#f59e0b" if x >= 50 else "#ef4444" for x in radar["Score"]]))
-fig.update_layout(height=360, margin=dict(l=10, r=10, t=10, b=10), yaxis=dict(range=[0, 100]))
-st.plotly_chart(fig, use_container_width=True)
+    if liq > 0:
+        ratio = vol / liq
+        if ratio > 10: score += 20
+        elif ratio > 5: score += 15
+        elif ratio > 2: score += 8
+
+    if chg24 > 500: score += 15
+    elif chg24 > 200: score += 10
+    elif chg24 > 100: score += 5
+    elif chg24 < -90: score += 15
+    elif chg24 < -70: score += 10
+
+    if created > 0:
+        age_d = (time.time() * 1000 - created) / (1000 * 86400)
+        if age_d < 1: score += 15
+        elif age_d < 7: score += 10
+        elif age_d < 30: score += 5
+        elif age_d > 365: score -= 10
+
+    score = max(0, min(100, score))
+    if score <= 30:
+        return score, "LOW", "#3fb950"
+    elif score <= 60:
+        return score, "MEDIUM", "#d29922"
+    return score, "HIGH", "#f85149"
+
+# ── Build signals ──
+@st.cache_data(ttl=120)
+def build_signals():
+    trending = fetch_trending()
+    rows = []
+    for coin in trending[:10]:
+        name = coin.get("item", {}).get("name", "")
+        symbol = coin.get("item", {}).get("symbol", "")
+        pair = fetch_dex_pair(name)
+        if pair:
+            score, risk_lvl, color = calc_risk(pair)
+            mcap = pair.get("marketCap", 0) or 0
+            chg = (pair.get("priceChange", {}).get("h24", 0) or 0)
+            if score <= 40 and chg > 0:
+                action = "ACHAT"
+            elif score >= 70 or chg < -20:
+                action = "VENTE"
+            else:
+                action = "ATTENTE"
+            rows.append({
+                "Ticker": symbol,
+                "Nom": name,
+                "Action": action,
+                "Score": score,
+                "Risque": risk_lvl,
+                "24h": chg,
+                "MarketCap": mcap,
+            })
+    return pd.DataFrame(rows)
+
+with st.spinner("Analyse des tokens trending en cours..."):
+    df = build_signals()
+
+if df.empty:
+    st.warning("Pas de signaux disponibles. API peut etre rate-limite.")
+else:
+    buys = (df["Action"] == "ACHAT").sum()
+    sells = (df["Action"] == "VENTE").sum()
+    waits = (df["Action"] == "ATTENTE").sum()
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Signaux ACHAT", buys)
+    m2.metric("Signaux VENTE", sells)
+    m3.metric("En attente", waits)
+    m4.metric("Score moyen", f'{df["Score"].mean():.0f}')
+
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        action_filter = st.selectbox("Filtrer", ["Tous", "ACHAT", "VENTE", "ATTENTE"])
+    with col_f2:
+        risk_filter = st.selectbox("Risque", ["Tous", "LOW", "MEDIUM", "HIGH"])
+
+    view = df.copy()
+    if action_filter != "Tous":
+        view = view[view["Action"] == action_filter]
+    if risk_filter != "Tous":
+        view = view[view["Risque"] == risk_filter]
+    view = view.sort_values("Score", ascending=True)
+
+    st.dataframe(
+        view,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Ticker": st.column_config.TextColumn("Ticker", width="small"),
+            "Nom": st.column_config.TextColumn("Nom", width="medium"),
+            "Action": st.column_config.TextColumn("Action", width="small"),
+            "Score": st.column_config.ProgressColumn("Risk Score", min_value=0, max_value=100),
+            "Risque": st.column_config.TextColumn("Risque", width="small"),
+            "24h": st.column_config.NumberColumn("24h", format="%.1f%%"),
+            "MarketCap": st.column_config.NumberColumn("Market Cap", format="$%.0f"),
+        },
+    )
+
+    # Bar chart
+    st.subheader("📊 Repartition des signaux")
+    fig = go.Figure()
+    for action, color in [("ACHAT", "#22c55e"), ("ATTENTE", "#d29922"), ("VENTE", "#ef4444")]:
+        sub = df[df["Action"] == action]
+        if not sub.empty:
+            fig.add_trace(go.Bar(x=sub["Ticker"], y=sub["Score"], name=action, marker_color=color))
+    fig.update_layout(
+        barmode="group",
+        height=350,
+        margin=dict(l=10, r=10, t=20, b=10),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(255,255,255,0.03)",
+        font={"color": "white"},
+        yaxis=dict(title="Risk Score", gridcolor="rgba(255,255,255,0.08)"),
+    )
+    st.plotly_chart(fig, use_container_width=True)
